@@ -104,6 +104,38 @@ https://github.com/catcursor/releases/releases/download/aimd-v1.0.0/aimd-1.0.0-w
 
 实际工作流应让标签、标题和附件版本保持一致。若创建或上传失败，先检查目标 Release 是否已留下草稿及部分附件，再决定补传或继续发布，避免直接重复创建。
 
+## 已配置的共用发布流程
+
+`.github/workflows/publish.yml` 可供各私有源码仓库复用；构建仍在原仓库进行，公开仓库只保存发布包及校验文件。
+
+已接入 **aimd**，固定产出 Windows x86-64、Linux x86-64 和 macOS ARM64 三个运行包。
+首次版本：[aimd v0.1.1](https://github.com/catcursor/releases/releases/tag/aimd-v0.1.1)；[三平台原生验证记录](https://github.com/catcursor/releases/actions/runs/41575138119)。
+
+其他项目接入步骤：
+
+1. 在源码仓库完成自己的构建，把 `<项目>-<版本>-<平台>.zip` 或 `.tar.gz` 放入一个目录；每个包附同名 `.sha256`，内容为 `64位sha256  包文件名`。
+2. 用 `actions/upload-artifact` 上传产物，artifact 名称以 `release-` 开头。不要上传源码或实际配置。
+3. 在源码仓库添加 Actions Secret `RELEASES_TOKEN`：fine-grained PAT 仅授权 `catcursor/releases` 的 **Contents: Read and write**。
+4. 在依赖构建完成的 job 中调用共用流程，例如：
+
+```yaml
+publish:
+  needs: build
+  permissions:
+    contents: read
+    actions: read
+  uses: catcursor/releases/.github/workflows/publish.yml@1167cb73c16cb1a338ccb0b72a31d8b52b31a169
+  with:
+    project: your-project
+    version: v1.0.0
+    artifact_pattern: release-*
+  secrets:
+    RELEASES_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+```
+
+版本输入带 `v`；包文件名中的版本不带 `v`。发布器核对所有校验值，拒绝意外文件，合成统一 `SHA256SUMS`，先创建草稿，确认远端附件清单后再公开。
+目标仓库固定为 `catcursor/releases`；已有版本不会被覆盖。公开仓库自身调用时可使用本仓库的 `GITHUB_TOKEN`，其他仓库仍需上述跨仓库令牌。
+
 ## 官方参考
 
 - [创建 Release](https://cli.github.com/manual/gh_release_create)
