@@ -1,0 +1,76 @@
+name: Verify and publish AIMD v0.1.1
+
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/aimd-bootstrap.yml]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: aimd-bootstrap-v0.1.1
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            target: linux-amd64
+            asset: aimd-0.1.1-linux-amd64.tar.gz
+            sha256: 7775c1546063b8ba4bc8d862669422503373c938a2a146bea52dd08046795fea
+          - runner: windows-2025
+            target: windows-amd64
+            asset: aimd-0.1.1-windows-amd64.zip
+            sha256: 7a4d590171bfa18dd2e9386e6a6391e01aa4d82ce3bb027357c7209f2c18c72c
+          - runner: macos-15
+            target: macos-arm64
+            asset: aimd-0.1.1-macos-arm64.tar.gz
+            sha256: 753e9861be8f5f5f7cfb5017cc03bc29d2c69b23bec32e81a7ebf2dbc363b117
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Fetch the already built package and verify its pinned digest
+        env:
+          ASSET: ${{ matrix.asset }}
+          EXPECTED_SHA256: ${{ matrix.sha256 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          curl --fail --location --silent --show-error --retry 3 \
+            "https://aimd-downloads-catcursor.catjuicy.chatgpt.site/v0.1.1/$ASSET" \
+            --output "dist/$ASSET"
+          python -c 'import hashlib,os,pathlib; p=pathlib.Path("dist")/os.environ["ASSET"]; assert hashlib.sha256(p.read_bytes()).hexdigest()==os.environ["EXPECTED_SHA256"], "Package digest mismatch"'
+          printf '%s  %s\n' "$EXPECTED_SHA256" "$ASSET" > "dist/$ASSET.sha256"
+      - name: Native binary and HTTP API smoke test
+        env:
+          ASSET: ${{ matrix.asset }}
+        shell: bash
+        run: python scripts/smoke_binary.py "dist/$ASSET"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-${{ matrix.target }}
+          path: dist/*
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 3
+
+  publish:
+    needs: verify
+    permissions:
+      contents: write
+      actions: read
+    uses: ./.github/workflows/publish.yml
+    with:
+      project: aimd
+      version: v0.1.1
+      artifact_pattern: release-*
